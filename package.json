@@ -1,0 +1,35 @@
+{
+  "name": "pdfly",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@pdfsmaller/pdf-encrypt-lite": "^1.0.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.0.0",
+    "next": "16.1.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.4.168",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-pdf": "^10.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/html2canvas": "^0.5.35",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "copy-webpack-plugin": "^13.0.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
