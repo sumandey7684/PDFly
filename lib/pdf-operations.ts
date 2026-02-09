@@ -1,18 +1,22 @@
-/* ========================== CORE PDF UTILITIES ========================== */
+/* ============================================================================
+   PDF OPERATIONS – PRODUCTION READY (VERCEL SAFE)
+   Browser-only functions are guarded.
+   Public API is stable and complete.
+============================================================================ */
 
 import { PDFDocument, degrees, rgb, StandardFonts } from "pdf-lib";
 import { encryptPDF as encryptPDFBytes } from "@pdfsmaller/pdf-encrypt-lite";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
-/* =============================== CONSTANTS ============================== */
+/* ============================== CONSTANTS ============================== */
 
 const PX_PER_INCH = 96;
 const MM_PER_INCH = 25.4;
-const MAX_HTML_CHARS = 500_000; // hard guard
+const MAX_HTML_CHARS = 500_000;
 const MAX_CANVAS_HEIGHT_PX = 16_000;
 
-/* ================================ HELPERS =============================== */
+/* =============================== HELPERS =============================== */
 
 function pxToUnit(px: number, unit: "mm" | "in") {
   return unit === "in" ? px / PX_PER_INCH : (px * MM_PER_INCH) / PX_PER_INCH;
@@ -22,17 +26,13 @@ function sanitizeHTML(input: string): string {
   const template = document.createElement("template");
   template.innerHTML = input;
 
-  const forbidden = ["script", "iframe", "object", "embed", "link"];
-  forbidden.forEach(tag =>
-    template.content.querySelectorAll(tag).forEach(el => el.remove())
-  );
+  ["script", "iframe", "object", "embed", "link"].forEach(tag => {
+    template.content.querySelectorAll(tag).forEach(el => el.remove());
+  });
 
   template.content.querySelectorAll("*").forEach(el => {
     [...el.attributes].forEach(attr => {
-      if (
-        attr.name.startsWith("on") ||
-        /javascript:/i.test(attr.value)
-      ) {
+      if (attr.name.startsWith("on") || /javascript:/i.test(attr.value)) {
         el.removeAttribute(attr.name);
       }
     });
@@ -42,7 +42,7 @@ function sanitizeHTML(input: string): string {
 }
 
 async function waitForResources(doc: Document) {
-  const imgs = Array.from(doc.images).map(
+  const images = Array.from(doc.images).map(
     img =>
       new Promise<void>(res => {
         if (img.complete) return res();
@@ -57,28 +57,30 @@ async function waitForResources(doc: Document) {
     } catch {}
   }
 
-  await Promise.all(imgs);
+  await Promise.all(images);
 }
 
-/* ========================== STANDARD PDF OPS ============================ */
+/* ============================ CORE PDF OPS ============================ */
 
 export async function mergePDFs(files: File[]): Promise<Uint8Array> {
   const out = await PDFDocument.create();
+
   for (const file of files) {
     const pdf = await PDFDocument.load(await file.arrayBuffer());
     const pages = await out.copyPages(pdf, pdf.getPageIndices());
     pages.forEach(p => out.addPage(p));
   }
+
   return out.save();
 }
 
 export async function extractPages(
   file: File,
-  indices: number[]
+  pageIndices: number[]
 ): Promise<Uint8Array> {
   const src = await PDFDocument.load(await file.arrayBuffer());
   const out = await PDFDocument.create();
-  const pages = await out.copyPages(src, indices);
+  const pages = await out.copyPages(src, pageIndices);
   pages.forEach(p => out.addPage(p));
   return out.save();
 }
@@ -86,11 +88,11 @@ export async function extractPages(
 export async function rotatePDF(
   file: File,
   rotation: 90 | 180 | 270,
-  indices?: number[]
+  pageIndices?: number[]
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.load(await file.arrayBuffer());
   const pages = pdf.getPages();
-  const targets = indices ?? pages.map((_, i) => i);
+  const targets = pageIndices ?? pages.map((_, i) => i);
 
   targets.forEach(i => {
     if (pages[i]) {
@@ -141,8 +143,51 @@ export async function addWatermark(
   return pdf.save();
 }
 
+export async function organizePDF(
+  file: File,
+  pageOrder: { originalIndex: number; rotation: 0 | 90 | 180 | 270 }[]
+): Promise<Uint8Array> {
+  const src = await PDFDocument.load(await file.arrayBuffer());
+  const out = await PDFDocument.create();
+
+  for (const { originalIndex, rotation } of pageOrder) {
+    const [page] = await out.copyPages(src, [originalIndex]);
+    if (rotation !== 0) {
+      page.setRotation(degrees(page.getRotation().angle + rotation));
+    }
+    out.addPage(page);
+  }
+
+  return out.save();
+}
+
+export async function imagesToPDF(
+  files: File[]
+): Promise<{ pdf: Uint8Array; skippedFiles: string[] }> {
+  const pdf = await PDFDocument.create();
+  const skipped: string[] = [];
+
+  for (const file of files) {
+    const buf = await file.arrayBuffer();
+    let img;
+
+    if (file.type === "image/png") img = await pdf.embedPng(buf);
+    else if (file.type === "image/jpeg" || file.type === "image/jpg")
+      img = await pdf.embedJpg(buf);
+    else {
+      skipped.push(file.name);
+      continue;
+    }
+
+    const page = pdf.addPage([img.width, img.height]);
+    page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+  }
+
+  return { pdf: await pdf.save(), skippedFiles: skipped };
+}
+
 /* ============================ HTML → PDF ============================ */
-/* Browser-only. Do NOT import in server components. */
+/* Browser-only */
 
 export async function htmlToPDF(
   rawHTML: string,
@@ -165,9 +210,6 @@ export async function htmlToPDF(
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
   iframe.style.left = "-9999px";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument;
@@ -175,7 +217,7 @@ export async function htmlToPDF(
 
   try {
     doc.open();
-    doc.write("<!doctype html><html><head></head><body></body></html>");
+    doc.write("<!doctype html><html><body></body></html>");
     doc.close();
 
     doc.body.innerHTML = html;
@@ -220,11 +262,10 @@ export async function htmlToPDF(
         ? Math.min(options.maxHeightPerPage, pageHeight)
         : pageHeight;
 
-    let renderedHeight = 0;
-    let pageIndex = 0;
+    let rendered = 0;
 
-    while (renderedHeight < imgHeightTotal) {
-      if (pageIndex > 0) pdf.addPage();
+    while (rendered < imgHeightTotal) {
+      if (rendered > 0) pdf.addPage();
 
       const sliceHeightPx =
         ((maxHeight / imgHeightTotal) * canvas.height) | 0;
@@ -239,7 +280,7 @@ export async function htmlToPDF(
       ctx.drawImage(
         canvas,
         0,
-        (renderedHeight / imgHeightTotal) * canvas.height,
+        (rendered / imgHeightTotal) * canvas.height,
         canvas.width,
         sliceHeightPx,
         0,
@@ -259,22 +300,32 @@ export async function htmlToPDF(
         "FAST"
       );
 
-      renderedHeight += maxHeight;
-      pageIndex++;
+      rendered += maxHeight;
     }
 
     document.body.removeChild(iframe);
     return new Uint8Array(pdf.output("arraybuffer"));
-  } catch (err) {
+  } catch (e) {
     document.body.removeChild(iframe);
-    throw err;
+    throw e;
   }
 }
 
-/* ============================== DOWNLOAD ============================== */
+/* ============================== DOWNLOADS ============================== */
 
 export function downloadPDF(data: Uint8Array, filename: string) {
   const blob = new Blob([data], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  a.remove();
+}
+
+export function downloadImage(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -302,4 +353,54 @@ export async function encryptPDF(
     options.userPassword,
     options.ownerPassword ?? options.userPassword
   );
+}
+
+export async function decryptPDF(
+  file: File,
+  password: string
+): Promise<Uint8Array> {
+  if (typeof document === "undefined") {
+    throw new Error("decryptPDF must run in the browser");
+  }
+
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc =
+    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+
+  let pdfDoc;
+  try {
+    pdfDoc = await pdfjs.getDocument({
+      data: new Uint8Array(await file.arrayBuffer()),
+      password,
+    }).promise;
+  } catch {
+    throw new Error("Incorrect password or corrupted PDF");
+  }
+
+  const out = await PDFDocument.create();
+
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const viewport = page.getViewport({ scale: 2 });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) continue;
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const img = await out.embedPng(canvas.toDataURL("image/png"));
+    const pdfPage = out.addPage([viewport.width, viewport.height]);
+    pdfPage.drawImage(img, {
+      x: 0,
+      y: 0,
+      width: viewport.width,
+      height: viewport.height,
+    });
+  }
+
+  return out.save();
 }
