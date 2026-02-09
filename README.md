@@ -1,4 +1,4 @@
-# PDF0
+# PDFly
 
 A fast, privacy-focused PDF toolkit that runs entirely in your browser. No file uploads, no servers — your documents never leave your device.
 
@@ -41,7 +41,7 @@ A fast, privacy-focused PDF toolkit that runs entirely in your browser. No file 
 ```bash
 # Clone the repository
 git clone https://github.com/sumandey7684/pdfly.git
-cd pdf0
+cd pdfly
 
 # Install dependencies
 npm install
@@ -71,7 +71,7 @@ npm run build
 ## 📁 Project Structure
 
 ```
-pdf0/
+pdfly/
 ├── app/
 │   ├── page.tsx          # Landing page
 │   ├── layout.tsx        # Root layout with Navbar & Footer
