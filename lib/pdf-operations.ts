@@ -314,24 +314,20 @@ export async function htmlToPDF(
 /* ============================== DOWNLOADS ============================== */
 
 export function downloadPDF(data: Uint8Array, filename: string) {
-  const blob = new Blob([data], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  a.remove();
-}
+  const buffer = data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength
+  );
 
-export function downloadImage(blob: Blob, filename: string) {
+  const blob = new Blob([buffer], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
+
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
+
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   a.remove();
 }
