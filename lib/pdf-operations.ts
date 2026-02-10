@@ -1,7 +1,6 @@
 /* ============================================================================
-   PDF OPERATIONS – PRODUCTION READY (VERCEL SAFE)
-   Browser-only functions are guarded.
-   Public API is stable and complete.
+   PDF OPERATIONS — FINAL PRODUCTION VERSION
+   Compatible with Next.js 16, Turbopack, TS 5.9, Vercel
 ============================================================================ */
 
 import { PDFDocument, degrees, rgb, StandardFonts } from "pdf-lib";
@@ -23,14 +22,14 @@ function pxToUnit(px: number, unit: "mm" | "in") {
 }
 
 function sanitizeHTML(input: string): string {
-  const template = document.createElement("template");
-  template.innerHTML = input;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = input;
 
   ["script", "iframe", "object", "embed", "link"].forEach(tag => {
-    template.content.querySelectorAll(tag).forEach(el => el.remove());
+    tpl.content.querySelectorAll(tag).forEach(el => el.remove());
   });
 
-  template.content.querySelectorAll("*").forEach(el => {
+  tpl.content.querySelectorAll("*").forEach(el => {
     [...el.attributes].forEach(attr => {
       if (attr.name.startsWith("on") || /javascript:/i.test(attr.value)) {
         el.removeAttribute(attr.name);
@@ -38,7 +37,7 @@ function sanitizeHTML(input: string): string {
     });
   });
 
-  return template.innerHTML;
+  return tpl.innerHTML;
 }
 
 async function waitForResources(doc: Document) {
@@ -52,8 +51,7 @@ async function waitForResources(doc: Document) {
 
   if ("fonts" in doc) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (doc as any).fonts.ready;
+      await (doc as Document & { fonts: FontFaceSet }).fonts.ready;
     } catch {}
   }
 
@@ -64,13 +62,11 @@ async function waitForResources(doc: Document) {
 
 export async function mergePDFs(files: File[]): Promise<Uint8Array> {
   const out = await PDFDocument.create();
-
   for (const file of files) {
     const pdf = await PDFDocument.load(await file.arrayBuffer());
     const pages = await out.copyPages(pdf, pdf.getPageIndices());
     pages.forEach(p => out.addPage(p));
   }
-
   return out.save();
 }
 
@@ -252,7 +248,6 @@ export async function htmlToPDF(
       format: isLetter ? "letter" : "a4",
     });
 
-    const imgWidth = pageWidth;
     const imgHeightTotal =
       pxToUnit(canvas.height / dpr, unit) *
       (pageWidth / pxToUnit(canvas.width / dpr, unit));
@@ -294,7 +289,7 @@ export async function htmlToPDF(
         "PNG",
         0,
         0,
-        imgWidth,
+        pageWidth,
         maxHeight,
         undefined,
         "FAST"
@@ -328,6 +323,17 @@ export function downloadPDF(data: Uint8Array, filename: string) {
   document.body.appendChild(a);
   a.click();
 
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  a.remove();
+}
+
+export function downloadImage(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   a.remove();
 }
