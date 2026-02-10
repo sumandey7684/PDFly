@@ -309,10 +309,8 @@ export async function htmlToPDF(
 /* ============================== DOWNLOADS ============================== */
 
 export function downloadPDF(data: Uint8Array, filename: string) {
-  const buffer = data.buffer.slice(
-    data.byteOffset,
-    data.byteOffset + data.byteLength
-  );
+  // Force a real ArrayBuffer (never SharedArrayBuffer)
+  const buffer = new Uint8Array(data).buffer;
 
   const blob = new Blob([buffer], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
@@ -323,17 +321,6 @@ export function downloadPDF(data: Uint8Array, filename: string) {
   document.body.appendChild(a);
   a.click();
 
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  a.remove();
-}
-
-export function downloadImage(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   a.remove();
 }
