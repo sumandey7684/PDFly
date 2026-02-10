@@ -1,72 +1,32 @@
-/* ============================================================================
-   PDF OPERATIONS — FINAL PRODUCTION VERSION
-   Compatible with Next.js 16, Turbopack, TS 5.9, Vercel
-============================================================================ */
-
 import { PDFDocument, degrees, rgb, StandardFonts } from "pdf-lib";
 import { encryptPDF as encryptPDFBytes } from "@pdfsmaller/pdf-encrypt-lite";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
-/* ============================== CONSTANTS ============================== */
+/* -------------------------------------------------------------------------- */
+/*                                  UTILITIES                                 */
+/* -------------------------------------------------------------------------- */
 
 const PX_PER_INCH = 96;
 const MM_PER_INCH = 25.4;
-const MAX_HTML_CHARS = 500_000;
-const MAX_CANVAS_HEIGHT_PX = 16_000;
-
-/* =============================== HELPERS =============================== */
 
 function pxToUnit(px: number, unit: "mm" | "in") {
   return unit === "in" ? px / PX_PER_INCH : (px * MM_PER_INCH) / PX_PER_INCH;
 }
 
-function sanitizeHTML(input: string): string {
-  const tpl = document.createElement("template");
-  tpl.innerHTML = input;
-
-  ["script", "iframe", "object", "embed", "link"].forEach(tag => {
-    tpl.content.querySelectorAll(tag).forEach(el => el.remove());
-  });
-
-  tpl.content.querySelectorAll("*").forEach(el => {
-    [...el.attributes].forEach(attr => {
-      if (attr.name.startsWith("on") || /javascript:/i.test(attr.value)) {
-        el.removeAttribute(attr.name);
-      }
-    });
-  });
-
-  return tpl.innerHTML;
-}
-
-async function waitForResources(doc: Document) {
-  const images = Array.from(doc.images).map(
-    img =>
-      new Promise<void>(res => {
-        if (img.complete) return res();
-        img.onload = img.onerror = () => res();
-      })
-  );
-
-  if ("fonts" in doc) {
-    try {
-      await (doc as Document & { fonts: FontFaceSet }).fonts.ready;
-    } catch {}
-  }
-
-  await Promise.all(images);
-}
-
-/* ============================ CORE PDF OPS ============================ */
+/* -------------------------------------------------------------------------- */
+/*                               BASIC PDF OPS                                */
+/* -------------------------------------------------------------------------- */
 
 export async function mergePDFs(files: File[]): Promise<Uint8Array> {
   const out = await PDFDocument.create();
+
   for (const file of files) {
     const pdf = await PDFDocument.load(await file.arrayBuffer());
     const pages = await out.copyPages(pdf, pdf.getPageIndices());
     pages.forEach(p => out.addPage(p));
   }
+
   return out.save();
 }
 
@@ -125,6 +85,7 @@ export async function addWatermark(
   pdf.getPages().forEach(page => {
     const { width, height } = page.getSize();
     const textWidth = font.widthOfTextAtSize(text, size);
+
     page.drawText(text, {
       x: (width - textWidth) / 2,
       y: height / 2,
@@ -182,11 +143,12 @@ export async function imagesToPDF(
   return { pdf: await pdf.save(), skippedFiles: skipped };
 }
 
-/* ============================ HTML → PDF ============================ */
-/* Browser-only */
+/* -------------------------------------------------------------------------- */
+/*                               HTML → PDF                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function htmlToPDF(
-  rawHTML: string,
+  html: string,
   options?: {
     format?: "a4" | "letter";
     orientation?: "portrait" | "landscape";
@@ -197,32 +159,24 @@ export async function htmlToPDF(
     throw new Error("htmlToPDF must run in the browser");
   }
 
-  if (rawHTML.length > MAX_HTML_CHARS) {
-    throw new Error("HTML content too large");
-  }
-
-  const html = sanitizeHTML(rawHTML);
-
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
   iframe.style.left = "-9999px";
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument;
-  if (!doc) throw new Error("Iframe creation failed");
+  if (!doc) throw new Error("Iframe failed");
 
   try {
     doc.open();
     doc.write("<!doctype html><html><body></body></html>");
     doc.close();
-
     doc.body.innerHTML = html;
     doc.body.style.margin = "0";
-    doc.body.style.background = "#ffffff";
+    doc.body.style.background = "#fff";
 
-    await waitForResources(doc);
+    await new Promise(r => setTimeout(r, 300));
 
-    const dpr = window.devicePixelRatio || 1;
     const isLetter = options?.format === "letter";
     const unit: "mm" | "in" = isLetter ? "in" : "mm";
     const pageWidth = isLetter ? 8.5 : 210;
@@ -231,16 +185,12 @@ export async function htmlToPDF(
     const canvas = await html2canvas(
       doc.body,
       {
-        scale: dpr,
+        scale: window.devicePixelRatio || 1,
         backgroundColor: "#ffffff",
         useCORS: true,
         logging: false,
       } as Parameters<typeof html2canvas>[1]
     );
-
-    if (canvas.height > MAX_CANVAS_HEIGHT_PX) {
-      throw new Error("Rendered document too tall");
-    }
 
     const pdf = new jsPDF({
       orientation: options?.orientation ?? "portrait",
@@ -248,49 +198,26 @@ export async function htmlToPDF(
       format: isLetter ? "letter" : "a4",
     });
 
-    const imgHeightTotal =
-      pxToUnit(canvas.height / dpr, unit) *
-      (pageWidth / pxToUnit(canvas.width / dpr, unit));
+    const imgHeight =
+      pxToUnit(canvas.height, unit) *
+      (pageWidth / pxToUnit(canvas.width, unit));
 
+    let rendered = 0;
     const maxHeight =
       options?.maxHeightPerPage && options.maxHeightPerPage > 0
         ? Math.min(options.maxHeightPerPage, pageHeight)
         : pageHeight;
 
-    let rendered = 0;
-
-    while (rendered < imgHeightTotal) {
+    while (rendered < imgHeight) {
       if (rendered > 0) pdf.addPage();
 
-      const sliceHeightPx =
-        ((maxHeight / imgHeightTotal) * canvas.height) | 0;
-
-      const slice = document.createElement("canvas");
-      slice.width = canvas.width;
-      slice.height = sliceHeightPx;
-
-      const ctx = slice.getContext("2d");
-      if (!ctx) break;
-
-      ctx.drawImage(
-        canvas,
-        0,
-        (rendered / imgHeightTotal) * canvas.height,
-        canvas.width,
-        sliceHeightPx,
-        0,
-        0,
-        canvas.width,
-        sliceHeightPx
-      );
-
       pdf.addImage(
-        slice.toDataURL("image/png", 0.95),
+        canvas.toDataURL("image/png", 0.95),
         "PNG",
         0,
-        0,
+        -rendered,
         pageWidth,
-        maxHeight,
+        imgHeight,
         undefined,
         "FAST"
       );
@@ -306,12 +233,12 @@ export async function htmlToPDF(
   }
 }
 
-/* ============================== DOWNLOADS ============================== */
+/* -------------------------------------------------------------------------- */
+/*                                 DOWNLOADS                                  */
+/* -------------------------------------------------------------------------- */
 
 export function downloadPDF(data: Uint8Array, filename: string) {
-  // Force a real ArrayBuffer (never SharedArrayBuffer)
-  const buffer = new Uint8Array(data).buffer;
-
+  const buffer = new Uint8Array(data).buffer; // force real ArrayBuffer
   const blob = new Blob([buffer], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
 
@@ -325,7 +252,22 @@ export function downloadPDF(data: Uint8Array, filename: string) {
   a.remove();
 }
 
-/* ============================== ENCRYPTION ============================== */
+export function downloadImage(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  a.remove();
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               ENCRYPTION                                   */
+/* -------------------------------------------------------------------------- */
 
 export interface EncryptionOptions {
   userPassword: string;
@@ -349,22 +291,17 @@ export async function decryptPDF(
   password: string
 ): Promise<Uint8Array> {
   if (typeof document === "undefined") {
-    throw new Error("decryptPDF must run in the browser");
+    throw new Error("decryptPDF must run in browser");
   }
 
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc =
     `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
 
-  let pdfDoc;
-  try {
-    pdfDoc = await pdfjs.getDocument({
-      data: new Uint8Array(await file.arrayBuffer()),
-      password,
-    }).promise;
-  } catch {
-    throw new Error("Incorrect password or corrupted PDF");
-  }
+  const pdfDoc = await pdfjs.getDocument({
+    data: new Uint8Array(await file.arrayBuffer()),
+    password,
+  }).promise;
 
   const out = await PDFDocument.create();
 
